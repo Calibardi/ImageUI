@@ -261,7 +261,7 @@ extension IFCollectionViewController: UICollectionViewDataSource {
             imageManager.loadImage(
                 at: indexPath.item,
                 options: IFImage.LoadOptions(preferredSize: collectionViewLayout.itemSize, kind: .thumbnail),
-                sender: cell) { [weak self] result in
+                sender: .imageDisplayingView(cell)) { [weak self] result in
                     guard let self = self, case .success = result else { return }
                     self.updateCollectionViewLayout(forPreferredSizeAt: indexPath)
             }

@@ -23,6 +23,7 @@
 //
 
 import Nuke
+import NukeUI
 import Photos
 import NukeExtensions
 
@@ -84,14 +85,19 @@ class IFImageManager {
     func loadImage(
         at index: Int,
         options: IFImage.LoadOptions,
-        sender: ImageDisplayingView,
+        sender: Sender,
         completion: ((IFImage.Result) -> Void)? = nil) {
         
         guard let image = images[safe: index] else { return }
         
         switch image[options.kind] {
         case .image(let image):
-            sender.nuke_display(image: image, data: nil)
+            switch sender {
+            case .lazyImageView(let sender):
+                sender.imageView.image = image
+            case .imageDisplayingView(let sender):
+                sender.nuke_display(image: image, data: nil)
+            }
 
             completion?(.success((options.kind, image)))
 
@@ -108,9 +114,14 @@ class IFImageManager {
             request.deliveryMode = options.deliveryMode
             request.isNetworkAccessAllowed = true
             
-            let requestID = self.photosManager.requestImage(for: asset, targetSize: size, contentMode: .aspectFit, options: request) { [weak sender] image, userInfo in
+            let requestID = self.photosManager.requestImage(for: asset, targetSize: size, contentMode: .aspectFit, options: request) { image, userInfo in
                 if let image = image {
-                    sender?.nuke_display(image: image, data: nil)
+                    switch sender {
+                    case .lazyImageView(let sender):
+                        sender.imageView.image = image
+                    case .imageDisplayingView(let sender):
+                        sender.nuke_display(image: image, data: nil)
+                    }
 
                     if (userInfo?[PHImageResultIsDegradedKey] as? NSNumber)?.boolValue == true {
                         completion?(.success((kind: .thumbnail, resource: image)))
@@ -140,19 +151,32 @@ class IFImageManager {
                 priority = .normal
             }
 
-            let request = ImageRequest(
+            var request = ImageRequest(
                 url: url,
                 processors: options.preferredSize.map { [ImageProcessors.Resize(size: $0)] } ?? [],
                 priority: priority)
-
-            var loadingOptions = ImageLoadingOptions(
-                placeholder: image.placeholder ?? placeholderImage,
-                transition: .fadeIn(duration: 0.1, options: .curveEaseOut))
-            loadingOptions.pipeline = pipeline
-
-            NukeExtensions.loadImage(with: request, options: loadingOptions, into: sender, completion: { result in
-                completion?(result.map { (options.kind, $0.image) }.mapError { $0 })
-            })
+            
+            switch sender {
+            case .lazyImageView(let sender):
+                request.options = [.skipDecompression, .disableMemoryCache]
+                sender.pipeline = pipeline
+                sender.transition = .fadeIn(duration: 0.1)
+                sender.placeholderImage = image.placeholder ?? placeholderImage
+                sender.onCompletion = { result in
+                    completion?(result.map { (options.kind, $0.image) }.mapError { $0 })
+                }
+                
+                sender.request = request
+            case .imageDisplayingView(let sender):
+                var loadingOptions = ImageLoadingOptions(
+                    placeholder: image.placeholder ?? placeholderImage,
+                    transition: .fadeIn(duration: 0.1, options: .curveEaseOut))
+                loadingOptions.pipeline = pipeline
+                NukeExtensions.loadImage(with: request, options: loadingOptions, into: sender, completion: { result in
+                    completion?(result.map { (options.kind, $0.image) }.mapError { $0 })
+                })
+            }
+            
         }
     }
     
@@ -261,5 +285,12 @@ extension IFImageManager {
         }
         
         self.displayingLinkMetadata = metadata
+    }
+}
+
+extension IFImageManager {
+    enum Sender {
+        case lazyImageView(_ sender: LazyImageView)
+        case imageDisplayingView(_ sender: ImageDisplayingView)
     }
 }

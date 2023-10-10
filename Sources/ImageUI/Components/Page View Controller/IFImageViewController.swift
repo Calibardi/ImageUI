@@ -23,6 +23,10 @@
 //
 
 import UIKit
+import Gifu
+import NukeUI
+import Nuke
+import NukeExtensions
 
 class IFImageViewController: UIViewController {
     private struct Constants {
@@ -41,8 +45,8 @@ class IFImageViewController: UIViewController {
         return view
     }()
     
-    private let imageView: UIImageView = {
-        let view = UIImageView()
+    private let imageLazyView: LazyImageView = {
+        let view = LazyImageView()
         view.translatesAutoresizingMaskIntoConstraints = false
         view.isUserInteractionEnabled = true
         return view
@@ -78,17 +82,17 @@ class IFImageViewController: UIViewController {
     override func loadView() {
         view = UIView()
         view.addSubview(scrollView)
-        scrollView.addSubview(imageView)
+        scrollView.addSubview(imageLazyView)
         
         NSLayoutConstraint.activate([
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scrollView.topAnchor.constraint(equalTo: view.topAnchor),
-            imageView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
-            imageView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
-            imageView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
-            imageView.topAnchor.constraint(equalTo: scrollView.topAnchor)])
+            imageLazyView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+            imageLazyView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+            imageLazyView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+            imageLazyView.topAnchor.constraint(equalTo: scrollView.topAnchor)])
     }
 
     override func viewDidLoad() {
@@ -124,7 +128,16 @@ class IFImageViewController: UIViewController {
     private func setup() {
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(imageViewDidDoubleTap))
         tapGesture.numberOfTapsRequired = 2
-        imageView.addGestureRecognizer(tapGesture)
+        imageLazyView.addGestureRecognizer(tapGesture)
+        imageLazyView.makeImageView =  { container in
+            if container.type == .gif, let data = container.data {
+                let view = GIFImageView()
+                view.animate(withGIFData: data)
+                return view
+            }
+            return nil
+        }
+        
         scrollView.delegate = self
         scrollView.decelerationRate = .fast
         scrollView.contentInsetAdjustmentBehavior = .never
@@ -133,14 +146,14 @@ class IFImageViewController: UIViewController {
     private func update() {
         guard isViewLoaded else { return }
         UIView.performWithoutAnimation {
-            imageManager.loadImage(at: displayingImageIndex, options: IFImage.LoadOptions(kind: .original), sender: imageView) { [weak self] _ in
+            imageManager.loadImage(at: displayingImageIndex, options: IFImage.LoadOptions(kind: .original), sender: .lazyImageView(imageLazyView)) { [weak self] _ in
                 self?.updateScrollView()
             }
         }
     }
     
     private func updateScrollView(resetZoom: Bool = true) {
-        guard let image = imageView.image, image.size.width > 0, image.size.height > 0, view.frame != .zero else {
+        guard let image = imageLazyView.imageView.image, image.size.width > 0, image.size.height > 0, view.frame != .zero else {
             return
         }
         
@@ -164,7 +177,7 @@ class IFImageViewController: UIViewController {
     }
     
     private func updateContentInset() {
-        guard let image = imageView.image else { return }
+        guard let image = imageLazyView.imageView.image else { return }
         scrollView.contentInset.top = max((scrollView.frame.height - image.size.height * scrollView.zoomScale) / 2, 0)
         scrollView.contentInset.left = max((scrollView.frame.width - image.size.width * scrollView.zoomScale) / 2, 0)
     }
@@ -200,7 +213,7 @@ class IFImageViewController: UIViewController {
     @objc private func imageViewDidDoubleTap(_ sender: UITapGestureRecognizer) {
         switch scrollView.zoomScale {
         case scrollView.minimumZoomScale:
-            let tapLocation = sender.location(in: imageView)
+            let tapLocation = sender.location(in: imageLazyView)
             let targetZoomScale = max(aspectFillZoom, scrollView.maximumZoomScale * Constants.doubleTapZoomMultiplier)
             let zoomWidth = scrollView.bounds.width / targetZoomScale
             let zoomHeight = scrollView.bounds.height / targetZoomScale
@@ -214,7 +227,7 @@ class IFImageViewController: UIViewController {
 
 extension IFImageViewController: UIScrollViewDelegate {
     func viewForZooming(in scrollView: UIScrollView) -> UIView? {
-        imageView
+        imageLazyView
     }
     
     func scrollViewDidZoom(_ scrollView: UIScrollView) {
